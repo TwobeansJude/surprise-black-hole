@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Jude ZHAO Gravity Mystery V13.2</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.19.0/matter.min.js"></script>
+    <style>
+        :root { --bg: #000; --blue: #00d4ff; --pink: #ff007f; --warning: #ff1100; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; overflow: hidden; background: var(--bg); font-family: 'Arial Black', sans-serif; -webkit-tap-highlight-color: transparent; }
+        
+        #game-wrapper { width: 100%; height: 100%; position: absolute; transition: transform 0.1s; z-index: 1; }
+        
+        #hud { position: absolute; top: 40px; width: 100%; text-align: center; pointer-events: none; z-index: 10; }
+        #score-box { color: #fff; font-size: 3rem; font-weight: 900; text-shadow: 0 0 20px var(--blue); }
+
+        #big-alert { 
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0);
+            font-size: 40vh; font-weight: 900; color: var(--warning); 
+            opacity: 0; pointer-events: none; z-index: 50; 
+            text-shadow: 0 0 50px var(--warning), 0 0 100px var(--warning);
+        }
+
+        .glitch-active { animation: glitch-anim 0.4s ease-out forwards; }
+        .alert-active { animation: alert-anim 0.4s ease-out forwards; }
+
+        @keyframes glitch-anim {
+            0% { transform: scale(1); filter: hue-rotate(0deg) brightness(2) invert(0); }
+            50% { transform: scale(1.6); filter: hue-rotate(270deg) brightness(6) invert(1); }
+            100% { transform: scale(1); filter: hue-rotate(360deg) brightness(1) invert(0); }
+        }
+
+        @keyframes alert-anim {
+            0% { transform: translate(-50%, -50%) scale(0); opacity: 0; }
+            30% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
+            100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; }
+        }
+
+        .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.98); z-index: 100; color: white; text-align: center; padding: 25px; box-sizing: border-box; }
+        .tutorial { text-align: left; background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px solid rgba(0,212,255,0.3); line-height: 1.8; font-size: 0.95rem; }
+        
+        button { padding: 20px 80px; background: var(--pink); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 900; font-size: 1.5rem; letter-spacing: 5px; box-shadow: 0 0 30px var(--pink); }
+        #watermark { position: absolute; bottom: 15px; right: 20px; color: white; opacity: 0.1; font-size: 12px; pointer-events: none; }
+        
+        /* 移动端优化 */
+        @media (max-width: 768px) {
+            #score-box { font-size: 2rem; }
+            .tutorial { font-size: 0.85rem; padding: 15px; }
+            button { padding: 15px 40px; font-size: 1.2rem; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="hud"><div id="score-box">0</div></div>
+<div id="big-alert">!</div>
+
+<div id="game-wrapper">
+    <div id="game-container"></div>
+</div>
+
+<div id="start-overlay" class="overlay">
+    <h1 style="letter-spacing:10px; font-size: 2.5rem; text-shadow: 0 0 20px var(--pink); margin: 0;">MYSTERY CORE</h1>
+    <div class="tutorial">
+        <b>核心协议：</b><br>
+        1. <b>【黑洞引力】</b>：长按屏幕唤醒黑洞，吞噬四周物质。<br>
+        2. <b>【同色进化】</b>：相同色彩碰撞将瞬间融合，壮大体积。<br>
+        3. <b>【异色湮灭】</b>：不同色彩在核心区会相互磨损直至消失。<br>
+        4. <b>【未知惊喜】</b>：当球体进化<b>到一定程度</b>，将触发不可思议的突袭式惊喜。
+    </div>
+    <button id="start-btn">ENGAGE</button>
+</div>
+
+<div id="watermark">Jude ZHAO</div>
+
+<script>
+const { Engine, Render, Runner, Bodies, Composite, Body, Vector, Events } = Matter;
+const engine = Engine.create({ gravity: { x: 0, y: 0 } });
+let score = 0, isPressing = false, mousePos = { x: 0, y: 0 }, balls = [];
+const COLORS = { blue: '#00d4ff', green: '#00f260', red: '#ff5f6d', purple: '#9d50bb', orange: '#ffb347' };
+
+// 音频系统 - 移动端优化版
+const AudioEngine = {
+    ctx: null,
+    init: function() {
+        try {
+            if (!this.ctx) {
+                this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (this.ctx.state === 'suspended') {
+                this.ctx.resume();
+            }
+        } catch (e) { console.error("Audio init error", e); }
+    },
+    playTone(f, d, v, type='sine') {
+        if (!this.ctx || this.ctx.state !== 'running') return;
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = type;
+        o.frequency.setValueAtTime(f, this.ctx.currentTime);
+        g.gain.setValueAtTime(v, this.ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + d);
+        o.connect(g); g.connect(this.ctx.destination);
+        o.start(); o.stop(this.ctx.currentTime + d);
+    },
+    boom() {
+        this.playTone(55, 1.2, 0.6, 'triangle');
+        this.playTone(110, 0.7, 0.3, 'sawtooth');
+    },
+    fusion() {
+        this.playTone(990, 0.1, 0.06);
+    }
+};
+
+// 修复启动按钮逻辑
+document.getElementById('start-btn').onclick = function() {
+    // 立即反馈：隐藏遮罩
+    document.getElementById('start-overlay').style.display = 'none';
+    
+    // 异步尝试启动音频（不阻塞主进程）
+    AudioEngine.init();
+    
+    // 启动引擎
+    boot();
+};
+
+function boot() {
+    const render = Render.create({
+        element: document.getElementById('game-container'),
+        engine: engine,
+        options: { 
+            width: window.innerWidth, 
+            height: window.innerHeight, 
+            wireframes: false, 
+            background: 'transparent' 
+        }
+    });
+    Render.run(render);
+    Runner.run(Runner.create(), engine);
+
+    Events.on(engine, 'beforeUpdate', () => {
+        const LIMIT = window.innerWidth / 6;
+        
+        if (isPressing) {
+            balls.forEach(b => {
+                const d = Vector.sub(mousePos, b.position);
+                const dist = Vector.magnitude(d);
+                if (dist < 1200) {
+                    Body.applyForce(b, b.position, Vector.mult(Vector.normalise(d), 0.009 * b.mass));
+                    b.frictionAir = dist < 85 ? 0.4 : 0.01;
+                }
+                // 突袭惊喜检测
+                if (b.circleRadius > LIMIT && !b.isExploding) {
+                    b.isExploding = true;
+                    triggerSurprise(b);
+                }
+            });
+
+            // 核心区域合并逻辑
+            const inCenter = balls.filter(b => !b.isDel && Vector.magnitude(Vector.sub(b.position, mousePos)) < 165);
+            const groups = new Map();
+            inCenter.forEach(b => {
+                const list = groups.get(b.label) || [];
+                list.push(b);
+                groups.set(b.label, list);
+            });
+
+            groups.forEach(list => {
+                if(list.length > 1) {
+                    AudioEngine.fusion();
+                    let main = list.reduce((a, b) => a.circleRadius > b.circleRadius ? a : b);
+                    let area = list.reduce((s, b) => s + b.circleRadius * b.circleRadius, 0);
+                    resizeBall(main, Math.sqrt(area) * 1.16);
+                    list.forEach(b => { if(b !== main) removeBall(b); });
+                    score += 250;
+                    document.getElementById('score-box').innerText = score;
+                }
+            });
+        }
+    });
+
+    // 疯狂弹幕生成 (75ms)
+    setInterval(() => { if(balls.length < 165) spawn(); }, 75);
+}
+
+function triggerSurprise(b) {
+    AudioEngine.boom();
+    score += 9999;
+    document.getElementById('score-box').innerText = score;
+
+    // 触发浮夸特效
+    const wrapper = document.getElementById('game-wrapper');
+    wrapper.classList.remove('glitch-active');
+    void wrapper.offsetWidth;
+    wrapper.classList.add('glitch-active');
+
+    const alert = document.getElementById('big-alert');
+    alert.classList.remove('alert-active');
+    void alert.offsetWidth;
+    alert.classList.add('alert-active');
+
+    removeBall(b);
+}
+
+function spawn() {
+    const side = Math.floor(Math.random() * 4);
+    let x, y, vx=0, vy=0, s=7; 
+    if (side === 0) { x = Math.random()*innerWidth; y = -30; vy = s; }
+    else if (side === 1) { x = Math.random()*innerWidth; y = innerHeight+30; vy = -s; }
+    else if (side === 2) { x = -30; y = Math.random()*innerHeight; vx = s; }
+    else { x = innerWidth+30; y = Math.random()*innerHeight; vx = -s; }
+    
+    const type = Object.keys(COLORS)[Math.floor(Math.random()*5)];
+    const r = 8 + Math.random()*10;
+    const b = Bodies.circle(x, y, r, { 
+        label: type, 
+        render: { fillStyle: COLORS[type] },
+        restitution: 0.6
+    });
+    b.circleRadius = r;
+    Body.setVelocity(b, {x: vx, y: vy});
+    balls.push(b);
+    Composite.add(engine.world, b);
+}
+
+function resizeBall(body, newR) {
+    if (!body || body.isDel) return;
+    const s = newR / body.circleRadius;
+    Body.scale(body, s, s);
+    body.circleRadius = newR;
+    // 移除预警变白，保持颜色直到突袭爆炸
+}
+
+function removeBall(b) {
+    b.isDel = true;
+    Composite.remove(engine.world, b);
+    const idx = balls.indexOf(b);
+    if (idx > -1) balls.splice(idx, 1);
+}
+
+// ========== 修复触摸交互 ==========
+const updatePos = (e) => {
+    e.preventDefault(); // 防止滚动
+    const p = e.touches ? e.touches[0] : e;
+    if (p) {
+        mousePos.x = p.clientX; 
+        mousePos.y = p.clientY;
+    }
+};
+
+const handleStart = (e) => { 
+    e.preventDefault(); // 关键修复：阻止默认行为
+    AudioEngine.init(); // 交互时持续尝试激活
+    isPressing = true; 
+    updatePos(e); 
+};
+
+const handleMove = (e) => {
+    e.preventDefault(); // 防止页面滚动
+    if (isPressing) {
+        updatePos(e);
+    }
+};
+
+const handleEnd = (e) => {
+    e.preventDefault();
+    isPressing = false;
+};
+
+// 清理旧监听器
+window.removeEventListener('mousedown', handleStart);
+window.removeEventListener('mousemove', handleMove);
+window.removeEventListener('mouseup', handleEnd);
+window.removeEventListener('touchstart', handleStart);
+window.removeEventListener('touchmove', handleMove);
+window.removeEventListener('touchend', handleEnd);
+
+// 添加新监听器
+window.addEventListener('mousedown', handleStart);
+window.addEventListener('mousemove', handleMove);
+window.addEventListener('mouseup', handleEnd);
+
+// 触摸事件 - 使用非被动监听器以允许 preventDefault
+window.addEventListener('touchstart', handleStart, { passive: false });
+window.addEventListener('touchmove', handleMove, { passive: false });
+window.addEventListener('touchend', handleEnd, { passive: false });
+window.addEventListener('touchcancel', handleEnd, { passive: false });
+
+// 窗口大小改变时更新渲染器
+window.addEventListener('resize', () => {
+    if (engine.render) {
+        engine.render.canvas.width = window.innerWidth;
+        engine.render.canvas.height = window.innerHeight;
+        engine.render.options.width = window.innerWidth;
+        engine.render.options.height = window.innerHeight;
+    }
+});
+
+</script>
+</body>
+</html>
