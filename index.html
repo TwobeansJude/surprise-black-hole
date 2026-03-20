@@ -35,18 +35,40 @@
             30% { transform: translate(-50%, -50%) scale(1.5); opacity: 1; }
             100% { transform: translate(-50%, -50%) scale(1.2); opacity: 0; }
         }
-
-        .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; background: rgba(0,0,0,0.98); z-index: 100; color: white; text-align: center; padding: 25px; box-sizing: border-box; }
-        .tutorial { text-align: left; background: rgba(255,255,255,0.03); padding: 20px; border-radius: 12px; margin: 25px 0; border: 1px solid rgba(0,212,255,0.3); line-height: 1.8; font-size: 0.95rem; }
         
-        button { padding: 20px 80px; background: var(--pink); color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: 900; font-size: 1.5rem; letter-spacing: 5px; box-shadow: 0 0 30px var(--pink); }
         #watermark { position: absolute; bottom: 15px; right: 20px; color: white; opacity: 0.1; font-size: 12px; pointer-events: none; }
         
         /* 移动端优化 */
         @media (max-width: 768px) {
             #score-box { font-size: 2rem; }
-            .tutorial { font-size: 0.85rem; padding: 15px; }
-            button { padding: 15px 40px; font-size: 1.2rem; }
+        }
+        
+        /* 隐藏启动页相关元素 */
+        .overlay, #start-btn, #start-overlay {
+            display: none !important;
+        }
+
+        /* 玩法提示 - 精简版 */
+        #game-tip {
+            position: absolute;
+            bottom: 30px;
+            left: 20px;
+            right: 20px;
+            color: rgba(255,255,255,0.9);
+            font-size: 14px;
+            pointer-events: none;
+            z-index: 20;
+            text-align: center;
+            text-shadow: 0 0 15px var(--blue);
+            background: rgba(0,0,0,0.6);
+            padding: 12px 20px;
+            border-radius: 30px;
+            border: 1px solid var(--blue);
+            backdrop-filter: blur(3px);
+            font-family: 'Arial', sans-serif;
+            letter-spacing: 0.5px;
+            max-width: 90%;
+            margin: 0 auto;
         }
     </style>
 </head>
@@ -55,20 +77,11 @@
 <div id="hud"><div id="score-box">0</div></div>
 <div id="big-alert">!</div>
 
+<!-- 精简玩法提示 - 一句话 -->
+<div id="game-tip">⚡ 点击/长按召唤黑洞吞噬同色小球 ⚡</div>
+
 <div id="game-wrapper">
     <div id="game-container"></div>
-</div>
-
-<div id="start-overlay" class="overlay">
-    <h1 style="letter-spacing:10px; font-size: 2.5rem; text-shadow: 0 0 20px var(--pink); margin: 0;">MYSTERY CORE</h1>
-    <div class="tutorial">
-        <b>核心协议：</b><br>
-        1. <b>【黑洞引力】</b>：长按屏幕唤醒黑洞，吞噬四周物质。<br>
-        2. <b>【同色进化】</b>：相同色彩碰撞将瞬间融合，壮大体积。<br>
-        3. <b>【异色湮灭】</b>：不同色彩在核心区会相互磨损直至消失。<br>
-        4. <b>【未知惊喜】</b>：当球体进化<b>到一定程度</b>，将触发不可思议的突袭式惊喜。
-    </div>
-    <button id="start-btn">ENGAGE</button>
 </div>
 
 <div id="watermark">Jude ZHAO</div>
@@ -112,15 +125,47 @@ const AudioEngine = {
     }
 };
 
-// 修复启动按钮逻辑
-document.getElementById('start-btn').onclick = function() {
-    // 立即反馈：隐藏遮罩
-    document.getElementById('start-overlay').style.display = 'none';
-    
-    // 异步尝试启动音频（不阻塞主进程）
+// 根据设备类型设置参数
+const isMobile = window.innerWidth <= 768;
+
+// 移动端参数 - 小球数量翻倍
+const MOBILE_PARAMS = {
+    GRAVITY_RANGE: 600,        // 引力范围
+    GRAVITY_FORCE: 0.003,      // 引力强度
+    MERGE_RANGE: 100,          // 合并范围
+    GROWTH_FACTOR: 1.08,       // 合并增长系数
+    BALL_SIZE_MIN: 3,           // 最小球大小
+    BALL_SIZE_MAX: 7,           // 最大球大小
+    INIT_SPEED: 1.2,            // 初始速度
+    FRICTION_AIR: 0.04,         // 空气阻力
+    GENERATE_INTERVAL: 75,      // 生成间隔(ms) - 从150减半到75，实现数量翻倍
+    MAX_BALLS: 200,              // 最大球数量 - 从100翻倍到200
+    MERGE_SCORE: 100,           // 合并得分
+    EXPLOSION_THRESHOLD: 3      // 爆炸阈值(屏幕宽度的几分之一)
+};
+
+// 电脑端参数（保持原版）
+const PC_PARAMS = {
+    GRAVITY_RANGE: 1200,
+    GRAVITY_FORCE: 0.009,
+    MERGE_RANGE: 165,
+    GROWTH_FACTOR: 1.16,
+    BALL_SIZE_MIN: 8,
+    BALL_SIZE_MAX: 18,
+    INIT_SPEED: 7,
+    FRICTION_AIR: 0.01,
+    GENERATE_INTERVAL: 75,
+    MAX_BALLS: 165,
+    MERGE_SCORE: 250,
+    EXPLOSION_THRESHOLD: 6      // 电脑端保持1/6屏幕
+};
+
+// 选择当前参数
+const PARAMS = isMobile ? MOBILE_PARAMS : PC_PARAMS;
+
+// 立即启动游戏
+window.onload = function() {
     AudioEngine.init();
-    
-    // 启动引擎
     boot();
 };
 
@@ -139,17 +184,18 @@ function boot() {
     Runner.run(Runner.create(), engine);
 
     Events.on(engine, 'beforeUpdate', () => {
-        const LIMIT = window.innerWidth / 6;
+        // 爆炸阈值：手机端1/3，电脑端1/6
+        const LIMIT = isMobile ? window.innerWidth / 3 : window.innerWidth / 6;
         
         if (isPressing) {
             balls.forEach(b => {
                 const d = Vector.sub(mousePos, b.position);
                 const dist = Vector.magnitude(d);
-                if (dist < 1200) {
-                    Body.applyForce(b, b.position, Vector.mult(Vector.normalise(d), 0.009 * b.mass));
-                    b.frictionAir = dist < 85 ? 0.4 : 0.01;
+                if (dist < PARAMS.GRAVITY_RANGE) {
+                    Body.applyForce(b, b.position, Vector.mult(Vector.normalise(d), PARAMS.GRAVITY_FORCE * b.mass));
+                    b.frictionAir = dist < 60 ? 0.3 : PARAMS.FRICTION_AIR;
                 }
-                // 突袭惊喜检测
+                
                 if (b.circleRadius > LIMIT && !b.isExploding) {
                     b.isExploding = true;
                     triggerSurprise(b);
@@ -157,7 +203,7 @@ function boot() {
             });
 
             // 核心区域合并逻辑
-            const inCenter = balls.filter(b => !b.isDel && Vector.magnitude(Vector.sub(b.position, mousePos)) < 165);
+            const inCenter = balls.filter(b => !b.isDel && Vector.magnitude(Vector.sub(b.position, mousePos)) < PARAMS.MERGE_RANGE);
             const groups = new Map();
             inCenter.forEach(b => {
                 const list = groups.get(b.label) || [];
@@ -170,17 +216,17 @@ function boot() {
                     AudioEngine.fusion();
                     let main = list.reduce((a, b) => a.circleRadius > b.circleRadius ? a : b);
                     let area = list.reduce((s, b) => s + b.circleRadius * b.circleRadius, 0);
-                    resizeBall(main, Math.sqrt(area) * 1.16);
+                    resizeBall(main, Math.sqrt(area) * PARAMS.GROWTH_FACTOR);
                     list.forEach(b => { if(b !== main) removeBall(b); });
-                    score += 250;
+                    score += PARAMS.MERGE_SCORE;
                     document.getElementById('score-box').innerText = score;
                 }
             });
         }
     });
 
-    // 疯狂弹幕生成 (75ms)
-    setInterval(() => { if(balls.length < 165) spawn(); }, 75);
+    // 根据设备调整生成频率
+    setInterval(() => { if(balls.length < PARAMS.MAX_BALLS) spawn(); }, PARAMS.GENERATE_INTERVAL);
 }
 
 function triggerSurprise(b) {
@@ -188,7 +234,6 @@ function triggerSurprise(b) {
     score += 9999;
     document.getElementById('score-box').innerText = score;
 
-    // 触发浮夸特效
     const wrapper = document.getElementById('game-wrapper');
     wrapper.classList.remove('glitch-active');
     void wrapper.offsetWidth;
@@ -204,18 +249,21 @@ function triggerSurprise(b) {
 
 function spawn() {
     const side = Math.floor(Math.random() * 4);
-    let x, y, vx=0, vy=0, s=7; 
+    let x, y, vx=0, vy=0, s = PARAMS.INIT_SPEED;
     if (side === 0) { x = Math.random()*innerWidth; y = -30; vy = s; }
     else if (side === 1) { x = Math.random()*innerWidth; y = innerHeight+30; vy = -s; }
     else if (side === 2) { x = -30; y = Math.random()*innerHeight; vx = s; }
     else { x = innerWidth+30; y = Math.random()*innerHeight; vx = -s; }
     
     const type = Object.keys(COLORS)[Math.floor(Math.random()*5)];
-    const r = 8 + Math.random()*10;
+    // 根据设备调整小球大小
+    const r = PARAMS.BALL_SIZE_MIN + Math.random() * (PARAMS.BALL_SIZE_MAX - PARAMS.BALL_SIZE_MIN);
     const b = Bodies.circle(x, y, r, { 
         label: type, 
         render: { fillStyle: COLORS[type] },
-        restitution: 0.6
+        restitution: isMobile ? 0.5 : 0.6,
+        friction: isMobile ? 0.3 : 0.1,
+        frictionAir: PARAMS.FRICTION_AIR
     });
     b.circleRadius = r;
     Body.setVelocity(b, {x: vx, y: vy});
@@ -228,7 +276,6 @@ function resizeBall(body, newR) {
     const s = newR / body.circleRadius;
     Body.scale(body, s, s);
     body.circleRadius = newR;
-    // 移除预警变白，保持颜色直到突袭爆炸
 }
 
 function removeBall(b) {
@@ -238,9 +285,9 @@ function removeBall(b) {
     if (idx > -1) balls.splice(idx, 1);
 }
 
-// ========== 修复触摸交互 ==========
+// ========== 触摸交互 ==========
 const updatePos = (e) => {
-    e.preventDefault(); // 防止滚动
+    e.preventDefault();
     const p = e.touches ? e.touches[0] : e;
     if (p) {
         mousePos.x = p.clientX; 
@@ -249,14 +296,14 @@ const updatePos = (e) => {
 };
 
 const handleStart = (e) => { 
-    e.preventDefault(); // 关键修复：阻止默认行为
-    AudioEngine.init(); // 交互时持续尝试激活
+    e.preventDefault();
+    AudioEngine.init();
     isPressing = true; 
     updatePos(e); 
 };
 
 const handleMove = (e) => {
-    e.preventDefault(); // 防止页面滚动
+    e.preventDefault();
     if (isPressing) {
         updatePos(e);
     }
@@ -267,26 +314,15 @@ const handleEnd = (e) => {
     isPressing = false;
 };
 
-// 清理旧监听器
-window.removeEventListener('mousedown', handleStart);
-window.removeEventListener('mousemove', handleMove);
-window.removeEventListener('mouseup', handleEnd);
-window.removeEventListener('touchstart', handleStart);
-window.removeEventListener('touchmove', handleMove);
-window.removeEventListener('touchend', handleEnd);
-
-// 添加新监听器
 window.addEventListener('mousedown', handleStart);
 window.addEventListener('mousemove', handleMove);
 window.addEventListener('mouseup', handleEnd);
 
-// 触摸事件 - 使用非被动监听器以允许 preventDefault
 window.addEventListener('touchstart', handleStart, { passive: false });
 window.addEventListener('touchmove', handleMove, { passive: false });
 window.addEventListener('touchend', handleEnd, { passive: false });
 window.addEventListener('touchcancel', handleEnd, { passive: false });
 
-// 窗口大小改变时更新渲染器
 window.addEventListener('resize', () => {
     if (engine.render) {
         engine.render.canvas.width = window.innerWidth;
@@ -294,6 +330,8 @@ window.addEventListener('resize', () => {
         engine.render.options.width = window.innerWidth;
         engine.render.options.height = window.innerHeight;
     }
+    // 刷新页面以应用新参数（当屏幕旋转时）
+    location.reload();
 });
 
 </script>
